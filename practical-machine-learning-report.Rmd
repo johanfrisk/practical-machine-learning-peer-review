@@ -1,0 +1,177 @@
+---
+title: "Practical Machine Learning Project"
+author: "Johan Frisk"
+date: "November 20, 2015"
+output: 
+  html_document:
+    toc: true
+    theme: spacelab
+---
+
+# Introduction
+This is the analysis of a dataset provided by [Groupware@LES](http://groupware.les.inf.puc-rio.br/har) as a part of the
+Coursera course in Practical Machine Learning given by John Hopkins Bloomberg
+School of Public Health, as a part of the Data Scientist Specialization.
+
+The challenge is to develop a model which can distinguish between correct
+and incorrect execution of Dumbbell Bicep Curls according to the table below.
+
++ Class A: exactly according to the specification
++ Class B: throwing the elbows to the front
++ Class C: lifting the dumbbell only halfway
++ Class D: lowering the dumbbell only halfway
++ Class E: throwing the hips to the front
+
+## Data
+The dataset includes readings belt, forearm, arm, and dumbbell accelerometers,
+it is split into a training and a test data set.
+
+## Method
+The strategy was to apply a random forest strategy through the caret and gbm
+packages. No preprocessing is performed at this stage.
+
+```{r, message=FALSE, warning=FALSE}
+# loading required libraries --------------------------------------------------
+library(caret)
+library(ggplot2)
+library(gbm)
+library(dplyr) # must be loaded after plyr in the caret package
+```
+
+##### Loading and cleaning the data
+
+```{r}
+# reading in the data ---------------------------------------------------------
+train <- read.csv("./data/pml-training.csv", 
+                  na.strings = "NA", 
+                  strip.white = TRUE)
+train <- tbl_df(train)
+
+eval <- read.csv("./data/pml-testing.csv", 
+                  na.strings = "NA", 
+                  strip.white = TRUE)
+eval <- tbl_df(eval)
+```
+
+##### Creating a training and testing data set
+Two data partitions are created, the first for training the model and a smaller
+for testing the accuracy.
+
+```{r}
+# splitting the training set into train and test ------------------------------
+set.seed(123)
+inTrain <- createDataPartition(y=train$classe, p=0.9, list=FALSE)
+training <- train[inTrain,]
+testing <- train[-inTrain,]
+```
+
+##### Fitting a model
+Using the training function of the caret package and the random forest provided
+by the gbm package, a model is fitted.
+
+```{r}
+# fit a boosted tree model via the gbm package --------------------------------
+gbmFit <- train(classe ~ user_name + 
+                        pitch_arm + 
+                        yaw_arm + 
+                        roll_arm + 
+                        roll_belt + 
+                        pitch_belt + 
+                        yaw_belt + 
+                        gyros_belt_x + 
+                        gyros_belt_y + 
+                        gyros_belt_z + 
+                        accel_belt_x + 
+                        accel_belt_y + 
+                        accel_belt_z + 
+                        magnet_belt_x + 
+                        magnet_belt_y + 
+                        magnet_belt_z + 
+                        gyros_arm_x + 
+                        gyros_arm_y + 
+                        gyros_arm_z + 
+                        accel_arm_x + 
+                        accel_arm_y + 
+                        accel_arm_z + 
+                        magnet_arm_x + 
+                        magnet_arm_y + 
+                        magnet_arm_z + 
+                        roll_dumbbell + 
+                        pitch_dumbbell + 
+                        yaw_dumbbell, 
+                method="gbm", 
+                data=training, 
+                verbose=FALSE)
+
+gbmFit
+```
+## Using the model to predict on training data
+The derived model is applied on the training data and we expect a high
+accuracy since the same data is used for training and prediction.
+
+```{r}
+# predict the results using the training data ---------------------------------
+predictTree <- predict(gbmFit,training)
+tbl1 <- xtabs(~predictTree + training$classe)
+tbl1
+summary(gbmFit,n.trees=150)
+tbl1
+acc1 <- round(100*sum(diag(tbl1))/sum(tbl1),2) # accuracy of the prediction
+acc1
+confusionMatrix(predictTree, training$classe)
+```
+##### Plotting the main results
+From the summary table and graph we find that the two first variables have a
+very large impact on prediction. To see how good separation we would get by
+using only these two predictors we plot them against each other. From the
+graph we can see that significant overlaps remain and that this simple model
+is insufficient.
+
+```{r}
+# plot separation using only the two most influential predictors --------------
+qplot(roll_belt, yaw_belt,colour=classe,data=training)
+```
+To study the effectiveness of the random forest algorithm we plot the accuracy,
+number of boosting iterations and Max Tree Depth. We find that prediction
+improves with Tree Depth and Boosting Iterations.
+
+```{r}
+# plot effectiveness of boosting and Tree Depth
+ggplot(gbmFit)
+```
+
+## Using the model to predict on the testing data
+After fitting the model and testing it on the same data it was built on, it is
+time to evaluate the accuracy on the testing set we set aside earlier. We
+expect the accuracy to be lower.
+
+```{r}
+# predict the results using the testing data ----------------------------------
+predictTreeTest <- predict(gbmFit,testing)
+tbl2 <- xtabs(~predictTreeTest + testing$classe)
+tbl2
+acc2 <- round(100*sum(diag(tbl2))/sum(tbl2),2) # accuracy of the prediction
+acc2
+confusionMatrix(predictTreeTest, testing$classe)
+```
+## Using the model to predict on the evaluation data
+Finally, we apply the model to the evaluation data set provided by Coursera.
+
+```{r}
+# predict the results using the evaluation data ----------------------------------
+answer<-predict(gbmFit,eval)
+answer
+    
+# code as suggested by Coursera
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+            filename = paste0("problem_id_",i,".txt")
+            write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+    }
+    
+pml_write_files(answer)
+```
+After submitting the answers we find that the algorithm correctly predicted
+20 out of 20 test cases.
